@@ -629,6 +629,7 @@ CHIP_ERROR BLEManagerImpl::ConfigureAdvertisingData(void)
     uint8_t advData[MAX_ADV_DATA_LEN];
     uint8_t index = 0;
 
+    constexpr uint8_t kServiceDataTypeSize = 1;
     // If a custom device name has not been specified, generate a CHIP-standard name based on the
     // discriminator value
     uint16_t discriminator;
@@ -649,13 +650,13 @@ CHIP_ERROR BLEManagerImpl::ConfigureAdvertisingData(void)
     }
 
     memset(advData, 0, sizeof(advData));
-    advData[index++] = 0x02;                            // length
-    advData[index++] = CHIP_ADV_DATA_TYPE_FLAGS;        // AD type : flags
-    advData[index++] = CHIP_ADV_DATA_FLAGS;             // AD value
-    advData[index++] = 0x0A;                            // length
-    advData[index++] = CHIP_ADV_DATA_TYPE_SERVICE_DATA; // AD type: (Service Data - 16-bit UUID)
-    advData[index++] = ShortUUID_CHIPoBLEService[0];    // AD value
-    advData[index++] = ShortUUID_CHIPoBLEService[1];    // AD value
+    advData[index++] = 0x02;                                                // length
+    advData[index++] = CHIP_ADV_DATA_TYPE_FLAGS;                            // AD type : flags
+    advData[index++] = CHIP_ADV_DATA_FLAGS;                                 // AD value
+    advData[index++] = kServiceDataTypeSize + sizeof(ESP32ChipServiceData); // length
+    advData[index++] = CHIP_ADV_DATA_TYPE_SERVICE_DATA;                     // AD type: (Service Data - 16-bit UUID)
+    advData[index++] = ShortUUID_CHIPoBLEService[0];                        // AD value
+    advData[index++] = ShortUUID_CHIPoBLEService[1];                        // AD value
 
     chip::Ble::ChipBLEDeviceIdentificationInfo deviceIdInfo;
     err = ConfigurationMgr().GetBLEDeviceIdentificationInfo(deviceIdInfo);
@@ -696,8 +697,6 @@ CHIP_ERROR BLEManagerImpl::StartAdvertising(void)
         ADV_CHNL_ALL,                      // channel_map
         ADV_FILTER_ALLOW_SCAN_ANY_CON_ANY, // adv_filter_policy
     };
-
-    advertParams.own_addr_type = BLE_ADDR_TYPE_RANDOM;
 
     // Advertise connectable if we haven't reached the maximum number of connections.
     size_t numCons        = NumConnections();
