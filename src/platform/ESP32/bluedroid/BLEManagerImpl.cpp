@@ -62,6 +62,7 @@
 #define MAX_ADV_DATA_LEN 31
 #define CHIP_ADV_DATA_TYPE_FLAGS 0x01
 #define CHIP_ADV_DATA_FLAGS 0x06
+#define CHIP_ADV_DATA_TYPE_LOCAL_NAME 0x09
 #define CHIP_ADV_DATA_TYPE_SERVICE_DATA 0x16
 #define CHIP_MAX_MTU_SIZE 256
 
@@ -1204,6 +1205,11 @@ CHIP_ERROR BLEManagerImpl::ConfigureAdvertisingData(void)
     VerifyOrExit(index + sizeof(deviceIdInfo) <= sizeof(advData), err = CHIP_ERROR_OUTBOUND_MESSAGE_TOO_BIG);
     memcpy(&advData[index], &deviceIdInfo, sizeof(deviceIdInfo));
     index = static_cast<uint8_t>(index + sizeof(deviceIdInfo));
+
+    advData[index++] = static_cast<uint8_t>(strlen(mDeviceName) + 1);                       // length
+    advData[index++] = CHIP_ADV_DATA_TYPE_LOCAL_NAME;                                       // AD type : name
+    VerifyOrExit(index + strlen(mDeviceName) + 1 <= sizeof(advData), err = CHIP_ERROR_OUTBOUND_MESSAGE_TOO_BIG);
+    memcpy(&advData[index], mDeviceName, strlen(mDeviceName));
 
     // Construct the Chip BLE Service Data to be sent in the scan response packet.
     err = MapBLEError(esp_ble_gap_config_adv_data_raw(advData, sizeof(advData)));
