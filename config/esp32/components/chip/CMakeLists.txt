@@ -440,8 +440,8 @@ if (CONFIG_SEC_CERT_DAC_PROVIDER)
 endif()
 
 if (CONFIG_ENABLE_ESP_INSIGHTS_TRACE)
-    idf_component_get_property(esp_insights_lib espressif__esp_insights COMPONENT_LIB)
-    list(APPEND chip_libraries $<TARGET_FILE:${esp_insights_lib}>)
+    # idf_component_get_property(esp_insights_lib espressif__esp_insights COMPONENT_LIB)
+    # list(APPEND chip_libraries $<TARGET_FILE:${esp_insights_lib}>)
 endif()
 
 idf_component_get_property(lwip_lib lwip COMPONENT_LIB)
