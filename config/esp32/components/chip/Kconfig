@@ -102,6 +102,13 @@ menu "CHIP Core"
             help
                 Matter spec is based on IPv6 communication only. Enabling this option may save some flash/ram.
 
+        config ENABLE_PERSIST_SUBSCRIPTIONS
+            bool "Enable persist subscriptions"
+            default n
+            help
+                Enable persist subscriptions to make the device resume the subscriptions from the persist
+                subscriptions information after reboot.
+
         config BUILD_CHIP_TESTS
             bool "Build CHIP tests"
             default "y"
