@@ -22,6 +22,8 @@
 #include <app/TestEventTriggerDelegate.h>
 #include <app/clusters/network-commissioning/network-commissioning.h>
 #include <app/clusters/ota-requestor/OTATestEventTriggerHandler.h>
+#include <app/clusters/electrical-energy-measurement-server/EnergyReportingTestEventTriggerHandler.h>
+#include <app/clusters/energy-evse-server/EnergyEvseTestEventTriggerHandler.h>
 #include <app/server/Dnssd.h>
 #include <app/server/Server.h>
 #include <platform/ESP32/NetworkCommissioningDriver.h>
@@ -176,6 +178,23 @@ void Esp32AppServer::Init(AppDelegate * sAppDelegate)
     VerifyOrDie(sTestEventTriggerDelegate.AddHandler(&sOtaTestEventTriggerHandler) == CHIP_NO_ERROR);
     initParams.testEventTriggerDelegate = &sTestEventTriggerDelegate;
 #endif // CONFIG_TEST_EVENT_TRIGGER_ENABLED
+
+#if CONFIG_TEST_EVENT_TRIGGER_ENABLED
+    if (hex_string_to_binary(CONFIG_TEST_EVENT_TRIGGER_ENABLE_KEY, sTestEventTriggerEnableKey,
+                             sizeof(sTestEventTriggerEnableKey)) == 0)
+    {
+        ESP_LOGE(TAG, "Failed to convert the EnableKey string to octstr type value");
+        memset(sTestEventTriggerEnableKey, 0, sizeof(sTestEventTriggerEnableKey));
+    }
+    static SimpleTestEventTriggerDelegate sTestEventTriggerDelegate{};
+    static EnergyReportingTestEventTriggerHandler sEnergyReportingTestEventTriggerHandler{};
+    static EnergyEvseTestEventTriggerHandler sEnergyEvseTestEventTriggerHandler{};
+    VerifyOrDie(sTestEventTriggerDelegate.Init(ByteSpan(sTestEventTriggerEnableKey)) == CHIP_NO_ERROR);
+    VerifyOrDie(sTestEventTriggerDelegate.AddHandler(&sEnergyReportingTestEventTriggerHandler) == CHIP_NO_ERROR);
+    VerifyOrDie(sTestEventTriggerDelegate.AddHandler(&sEnergyEvseTestEventTriggerHandler) == CHIP_NO_ERROR);
+    initParams.testEventTriggerDelegate = &sTestEventTriggerDelegate;
+#endif
+
     (void) initParams.InitializeStaticResourcesBeforeServerInit();
     if (sAppDelegate != nullptr)
     {
