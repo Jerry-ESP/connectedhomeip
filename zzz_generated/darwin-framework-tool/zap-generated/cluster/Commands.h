@@ -143726,7 +143726,7 @@ public:
 | * BorderAgentID                                                     | 0x0001 |
 | * ThreadVersion                                                     | 0x0002 |
 | * InterfaceEnabled                                                  | 0x0003 |
-| * ActiveDatasetTimestamp                                            | 0x0005 |
+| * ActiveDatasetTimestamp                                            | 0x0004 |
 | * GeneratedCommandList                                              | 0xFFF8 |
 | * AcceptedCommandList                                               | 0xFFF9 |
 | * EventList                                                         | 0xFFFA |

@@ -1206,7 +1206,7 @@
             },
             {
               "name": "DatasetResponse",
-              "code": 2,
+              "code": 3,
               "mfgCode": null,
               "source": "server",
               "isIncoming": 0,
@@ -1214,14 +1214,6 @@
             },
             {
               "name": "SetActiveDatasetRequest",
-              "code": 3,
-              "mfgCode": null,
-              "source": "client",
-              "isIncoming": 0,
-              "isEnabled": 1
-            },
-            {
-              "name": "SetPendingDatasetRequest",
               "code": 4,
               "mfgCode": null,
               "source": "client",
@@ -1229,18 +1221,10 @@
               "isEnabled": 1
             },
             {
-              "name": "TopologyRequest",
+              "name": "SetPendingDatasetRequest",
               "code": 5,
               "mfgCode": null,
               "source": "client",
-              "isIncoming": 0,
-              "isEnabled": 1
-            },
-            {
-              "name": "TopologyResponse",
-              "code": 6,
-              "mfgCode": null,
-              "source": "server",
               "isIncoming": 0,
               "isEnabled": 1
             }
