@@ -35,7 +35,7 @@
 #define APP_ERROR_START_TIMER_FAILED CHIP_APPLICATION_ERROR(0x05)
 #define APP_ERROR_STOP_TIMER_FAILED CHIP_APPLICATION_ERROR(0x06)
 
-extern LEDWidget AppLED;
+// extern LEDWidget AppLED;
 extern Button AppButton;
 
 class AppTask

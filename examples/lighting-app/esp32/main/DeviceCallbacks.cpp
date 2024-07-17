@@ -19,7 +19,8 @@
 
 #include "DeviceCallbacks.h"
 #include "Globals.h"
-#include "LEDWidget.h"
+// #include "LEDWidget.h"
+#include "light_driver.h"
 
 #include <app/util/util.h>
 
@@ -31,7 +32,7 @@
 
 static const char TAG[] = "light-app-callbacks";
 
-extern LEDWidget AppLED;
+// extern LEDWidget AppLED;
 
 using namespace chip;
 using namespace chip::Inet;
@@ -54,11 +55,9 @@ void AppDeviceCallbacks::PostAttributeChangeCallback(EndpointId endpointId, Clus
         OnLevelControlAttributeChangeCallback(endpointId, attributeId, value);
         break;
 
-#if CONFIG_LED_TYPE_RMT
     case ColorControl::Id:
         OnColorControlAttributeChangeCallback(endpointId, attributeId, value);
         break;
-#endif
 
     default:
         ESP_LOGI(TAG, "Unhandled cluster ID: %" PRIu32, clusterId);
@@ -74,7 +73,7 @@ void AppDeviceCallbacks::OnOnOffPostAttributeChangeCallback(EndpointId endpointI
                  ESP_LOGI(TAG, "Unhandled Attribute ID: '0x%" PRIx32 "'", attributeId));
     VerifyOrExit(endpointId == 1, ESP_LOGE(TAG, "Unexpected EndPoint ID: `0x%02x'", endpointId));
 
-    AppLED.Set(*value);
+    // AppLED.Set(*value);
 
 exit:
     return;
@@ -86,14 +85,13 @@ void AppDeviceCallbacks::OnLevelControlAttributeChangeCallback(EndpointId endpoi
                  ESP_LOGI(TAG, "Unhandled Attribute ID: '0x%" PRIx32 "'", attributeId));
     VerifyOrExit(endpointId == 1, ESP_LOGE(TAG, "Unexpected EndPoint ID: `0x%02x'", endpointId));
 
-    AppLED.SetBrightness(*value);
+    // AppLED.SetBrightness(*value);
 
 exit:
     return;
 }
 
 // Currently ColorControl cluster is supported for ESP32C3_DEVKITM and ESP32S3_DEVKITM which have an on-board RGB-LED
-#if CONFIG_LED_TYPE_RMT
 void AppDeviceCallbacks::OnColorControlAttributeChangeCallback(EndpointId endpointId, AttributeId attributeId, uint8_t * value)
 {
     using namespace ColorControl::Attributes;
@@ -114,12 +112,11 @@ void AppDeviceCallbacks::OnColorControlAttributeChangeCallback(EndpointId endpoi
         saturation = *value;
         CurrentHue::Get(endpointId, &hue);
     }
-    AppLED.SetColor(hue, saturation);
+    // AppLED.SetColor(hue, saturation);
 
 exit:
     return;
 }
-#endif // CONFIG_LED_TYPE_RMT
 
 /** @brief OnOff Cluster Init
  *
@@ -143,10 +140,10 @@ void emberAfOnOffClusterInitCallback(EndpointId endpoint)
 
 void AppDeviceCallbacksDelegate::OnIPv4ConnectivityEstablished()
 {
-    wifiLED.Set(true);
+    // wifiLED.Set(true);
 }
 
 void AppDeviceCallbacksDelegate::OnIPv4ConnectivityLost()
 {
-    wifiLED.Set(false);
+    // wifiLED.Set(false);
 }

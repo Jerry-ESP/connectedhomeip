@@ -1,3 +1,2 @@
 dependencies:
-    espressif/led_strip: "^1.0.0-alpha"
     espressif/lightbulb_driver: "==1.1.5"

@@ -28,6 +28,7 @@
 #include "esp_netif.h"
 #include "esp_openthread_border_router.h"
 #include "freertos/FreeRTOS.h"
+#include "freertos/timers.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "shell_extension/launch.h"
@@ -47,6 +48,8 @@
 #else
 #include <DeviceInfoProviderImpl.h>
 #endif // CONFIG_ENABLE_ESP32_DEVICE_INFO_PROVIDER
+
+#define REBOOT_COUNT_NVS_KEY "reboot_count"
 
 using namespace ::chip;
 using namespace ::chip::Credentials;
@@ -84,15 +87,75 @@ static constexpr EndpointId kThreadBRMgmtEndpoint = 1;
 static ThreadBorderRouterManagement::GenericThreadBorderRouterDelegate sThreadBRDelegate;
 static ThreadBorderRouterManagement::ServerInstance sThreadBRMgmtInstance(kThreadBRMgmtEndpoint, &sThreadBRDelegate);
 
+static uint8_t get_count()
+{
+    uint8_t value = 0;
+    nvs_handle_t handle = 0;
+    esp_err_t err = nvs_open_from_partition("nvs", "tbr-app", NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error opening NVS: %d", err);
+        return value;
+    }
+    err = nvs_get_u8(handle, REBOOT_COUNT_NVS_KEY, &value);
+    if (err != ESP_OK) {
+        ESP_LOGI(TAG, "Error getting from NVS: %d", err);
+    }
+    nvs_commit(handle);
+    nvs_close(handle);
+    return value;
+}
+
+static esp_err_t set_count(uint8_t value)
+{
+    nvs_handle_t handle = 0;
+    esp_err_t err = nvs_open_from_partition("nvs", "tbr-app", NVS_READWRITE, &handle);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error opening NVS: %d", err);
+        return err;
+    }
+    err = nvs_set_u8(handle, REBOOT_COUNT_NVS_KEY, value);
+    if (err != ESP_OK) {
+        ESP_LOGE(TAG, "Error setting in NVS: %d", err);
+    }
+    printf("set count %d\n", value);
+    nvs_commit(handle);
+    nvs_close(handle);
+    return err;
+}
+
+static void perform_reset_count(TimerHandle_t timer)
+{
+    if (get_count() >= 3) {
+        set_count(0);
+        printf("perform factoryreset\n");
+        ConfigurationMgr().InitiateFactoryReset();
+    }
+    set_count(0);
+    xTimerDelete(timer, 0);
+}
+
 extern "C" void app_main()
 {
     // Initialize the ESP NVS layer.
     esp_err_t err = nvs_flash_init();
+
     if (err != ESP_OK)
     {
         ESP_LOGE(TAG, "nvs_flash_init() failed: %s", esp_err_to_name(err));
         return;
     }
+
+    uint8_t count = get_count();
+    count ++;
+    set_count(count);
+    TimerHandle_t timer = xTimerCreate("factory_reset", pdMS_TO_TICKS(5 * 1000), pdFALSE, NULL,
+                                    &perform_reset_count);
+    if (!timer) {
+        ESP_LOGE(TAG, "Could not initialize timer");
+        return;
+    }
+    xTimerStart(timer, 0);
+
     err = esp_event_loop_create_default();
     if (err != ESP_OK)
     {
@@ -144,6 +207,10 @@ extern "C" void app_main()
 
     chip::DeviceLayer::PlatformMgr().ScheduleWork(InitServer, reinterpret_cast<intptr_t>(nullptr));
     sThreadBRMgmtInstance.Init();
+
+    chip::DeviceLayer::PlatformMgr().LockChipStack();
+    set_light_driver_default_state();
+    chip::DeviceLayer::PlatformMgr().UnlockChipStack();
 }
 
 extern "C" void otSysProcessDrivers(otInstance *aInstance)

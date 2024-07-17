@@ -21,6 +21,7 @@
 #include "freertos/FreeRTOS.h"
 
 #include "DeviceWithDisplay.h"
+#include "light_driver.h"
 
 #include <app-common/zap-generated/attributes/Accessors.h>
 
@@ -37,7 +38,7 @@ using namespace ::chip::DeviceLayer;
 
 static const char TAG[] = "app-task";
 
-LEDWidget AppLED;
+// LEDWidget AppLED;
 
 namespace {
 constexpr EndpointId kLightEndpointId = 1;
@@ -108,12 +109,13 @@ CHIP_ERROR AppTask::Init()
 {
     CHIP_ERROR err = CHIP_NO_ERROR;
 
-    AppLED.Init();
+    // AppLED.Init();
+    light_driver_init();
 
 #if CONFIG_HAVE_DISPLAY
-    InitDeviceDisplay();
+    // InitDeviceDisplay();
 
-    AppLED.SetVLED(ScreenManager::AddVLED(TFT_YELLOW));
+    // AppLED.SetVLED(ScreenManager::AddVLED(TFT_YELLOW));
 #endif
 
     return err;
@@ -179,28 +181,28 @@ void AppTask::DispatchEvent(AppEvent * aEvent)
 
 void AppTask::LightingActionEventHandler(AppEvent * aEvent)
 {
-    AppLED.Toggle();
-    chip::DeviceLayer::PlatformMgr().LockChipStack();
-    sAppTask.UpdateClusterState();
-    chip::DeviceLayer::PlatformMgr().UnlockChipStack();
+    // AppLED.Toggle();
+    // chip::DeviceLayer::PlatformMgr().LockChipStack();
+    // sAppTask.UpdateClusterState();
+    // chip::DeviceLayer::PlatformMgr().UnlockChipStack();
 }
 
 void AppTask::UpdateClusterState()
 {
-    ESP_LOGI(TAG, "Writing to OnOff cluster");
-    // write the new on/off value
-    Protocols::InteractionModel::Status status = Clusters::OnOff::Attributes::OnOff::Set(kLightEndpointId, AppLED.IsTurnedOn());
+    // ESP_LOGI(TAG, "Writing to OnOff cluster");
+    // // write the new on/off value
+    // Protocols::InteractionModel::Status status = Clusters::OnOff::Attributes::OnOff::Set(kLightEndpointId, AppLED.IsTurnedOn());
 
-    if (status != Protocols::InteractionModel::Status::Success)
-    {
-        ESP_LOGE(TAG, "Updating on/off cluster failed: %x", to_underlying(status));
-    }
+    // if (status != Protocols::InteractionModel::Status::Success)
+    // {
+    //     ESP_LOGE(TAG, "Updating on/off cluster failed: %x", to_underlying(status));
+    // }
 
-    ESP_LOGI(TAG, "Writing to Current Level cluster");
-    status = Clusters::LevelControl::Attributes::CurrentLevel::Set(kLightEndpointId, AppLED.GetLevel());
+    // ESP_LOGI(TAG, "Writing to Current Level cluster");
+    // status = Clusters::LevelControl::Attributes::CurrentLevel::Set(kLightEndpointId, AppLED.GetLevel());
 
-    if (status != Protocols::InteractionModel::Status::Success)
-    {
-        ESP_LOGE(TAG, "Updating level cluster failed: %x", to_underlying(status));
-    }
+    // if (status != Protocols::InteractionModel::Status::Success)
+    // {
+    //     ESP_LOGE(TAG, "Updating level cluster failed: %x", to_underlying(status));
+    // }
 }
