@@ -27,16 +27,29 @@ The ESP Thread border router board provides an integrated module of an ESP32-S3 
 
 ### OpenThread RCP
 
-We need to flash an OpenThread RCP(Radio Co-Processor) on ESP32-H2 of the Border Router Board before setting
-up the Thread Border example. Connect the USB1 port of the Border Router Board to your host machine. Then
-build and flash the RCP firmware
+We need to build an OpenThread RCP(Radio Co-Processor) firmware for ESP32-H2 of the Border Router Board
+before building this Thread Border example.
 
 ```
 cd $IDF_PATH/examples/openthread/ot_rcp
 idf.py set-target esp32h2
 idf.py build
-idf.py -p {port} erase-flash flash
 ```
+
+Then we need to connect the USB2 port(ESP32-S3) of the Border Router Board to your host machine. Build and flash
+this example.
+
+```
+cd ${CHIP_ROOT}/examples/thread-br-app/esp32
+idf.py set-target esp32s3
+idf.py build
+idf.py -p {port} erase-flash flash monitor
+```
+
+This example will detect the RCP firmware built in ESP-IDF path and flash it to the spiffs partition. When
+starting this example, the ESP32-S3 will compare the versions of both the RCP firmware in the spiffs partition and
+the firmware on ESP32-H2. if the spiffs RCP firmware is newer than the firmware on ESP32-H2, the Thread BR will flash
+the RCP firmware to ESP32-H2 automatically.
 
 ### OpenThread CLI
 
