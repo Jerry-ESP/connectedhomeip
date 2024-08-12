@@ -27,9 +27,9 @@
 
 #include <light_driver.h>
 
-#define PWM_RED_PIN 10
-#define PWM_GREEN_PIN 11
-#define PWM_BLUE_PIN 12
+#define PWM_RED_PIN 12
+#define PWM_GREEN_PIN 13
+#define PWM_BLUE_PIN 14
 
 using namespace chip;
 using namespace chip::Inet;
