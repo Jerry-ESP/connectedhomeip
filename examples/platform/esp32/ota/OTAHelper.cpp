@@ -70,6 +70,10 @@ void OTAHelpers::InitOTARequestor()
     if (!GetRequestorInstance())
     {
         SetRequestorInstance(&gRequestorCore);
+        if (&Server::GetInstance().GetPersistentStorage() == nullptr) {
+            printf("server has not been initialized, return--------\n");
+            return;
+        }
         gRequestorStorage.Init(Server::GetInstance().GetPersistentStorage());
         gRequestorCore.Init(Server::GetInstance(), gRequestorStorage, gRequestorUser, gDownloader);
         gImageProcessor.SetOTADownloader(&gDownloader);

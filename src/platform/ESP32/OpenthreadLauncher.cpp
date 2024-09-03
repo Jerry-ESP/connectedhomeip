@@ -169,19 +169,31 @@ static void update_rcp(void)
 
 static void try_update_ot_rcp(const esp_openthread_platform_config_t * config)
 {
+    printf("%s----%d\n", __FUNCTION__, __LINE__);
     char internal_rcp_version[kRcpVersionMaxSize];
+    printf("%s----%d\n", __FUNCTION__, __LINE__);
     const char * running_rcp_version = otPlatRadioGetVersionString(esp_openthread_get_instance());
+    printf("%s----%d\n", __FUNCTION__, __LINE__);
+
+    if (running_rcp_version) {
+        printf("running_rcp_version is not null\n");
+    }
 
     if (esp_rcp_load_version_in_storage(internal_rcp_version, sizeof(internal_rcp_version)) == ESP_OK)
     {
+        printf("%s----%d\n", __FUNCTION__, __LINE__);
         ESP_LOGI(TAG, "Internal RCP Version: %s", internal_rcp_version);
+        printf("%s----%d\n", __FUNCTION__, __LINE__);
         ESP_LOGI(TAG, "Running  RCP Version: %s", running_rcp_version);
+        printf("%s----%d\n", __FUNCTION__, __LINE__);
         if (strcmp(internal_rcp_version, running_rcp_version) == 0)
         {
+            printf("%s----%d\n", __FUNCTION__, __LINE__);
             esp_rcp_mark_image_verified(true);
         }
         else
         {
+            printf("%s----%d\n", __FUNCTION__, __LINE__);
             update_rcp();
         }
     }
@@ -195,9 +207,22 @@ static void try_update_ot_rcp(const esp_openthread_platform_config_t * config)
 
 static void rcp_failure_handler(void)
 {
+    // printf("%s----%d\n", __FUNCTION__, __LINE__);
+    // esp_rcp_mark_image_unusable();
+    // printf("%s----%d\n", __FUNCTION__, __LINE__);
+    // try_update_ot_rcp(s_platform_config);
+    // printf("%s----%d\n", __FUNCTION__, __LINE__);
+    // esp_rcp_reset();
     esp_rcp_mark_image_unusable();
-    try_update_ot_rcp(s_platform_config);
-    esp_rcp_reset();
+    char internal_rcp_version[kRcpVersionMaxSize];
+    if (esp_rcp_load_version_in_storage(internal_rcp_version, sizeof(internal_rcp_version)) == ESP_OK) {
+        ESP_LOGI(TAG, "Internal RCP Version: %s", internal_rcp_version);
+        update_rcp();
+    } else {
+        ESP_LOGI(TAG, "RCP firmware not found in storage, will reboot to try next image");
+        esp_rcp_mark_image_verified(false);
+        esp_restart();
+    }
 }
 #endif // CONFIG_OPENTHREAD_BORDER_ROUTER && CONFIG_AUTO_UPDATE_RCP
 
@@ -222,7 +247,9 @@ esp_err_t openthread_init_br_rcp(const esp_rcp_update_config_t * update_config)
     if (update_config)
     {
         err = esp_rcp_update_init(update_config);
+        printf("%s----%d------esp_rcp_update_init\n", __FUNCTION__, __LINE__);
     }
+    printf("%s----%d\n", __FUNCTION__, __LINE__);
     esp_openthread_register_rcp_failure_handler(rcp_failure_handler);
     return err;
 }
@@ -230,6 +257,7 @@ esp_err_t openthread_init_br_rcp(const esp_rcp_update_config_t * update_config)
 
 esp_err_t openthread_init_stack(void)
 {
+    printf("%s----%d\n", __FUNCTION__, __LINE__);
     // Used eventfds:
     // * netif
     // * ot task queue
@@ -250,14 +278,19 @@ esp_err_t openthread_init_stack(void)
     }
     assert(s_platform_config);
     // Initialize the OpenThread stack
+    printf("%s----%d\n", __FUNCTION__, __LINE__);
     ESP_ERROR_CHECK(esp_openthread_init(s_platform_config));
+    printf("%s----%d\n", __FUNCTION__, __LINE__);
 #if defined(CONFIG_OPENTHREAD_BORDER_ROUTER) && defined(CONFIG_AUTO_UPDATE_RCP)
+    printf("%s----%d\n", __FUNCTION__, __LINE__);
     try_update_ot_rcp(s_platform_config);
+    printf("%s----%d\n", __FUNCTION__, __LINE__);
 #endif // CONFIG_OPENTHREAD_BORDER_ROUTER && CONFIG_AUTO_UPDATE_RCP
 #ifdef CONFIG_OPENTHREAD_CLI
     esp_openthread_matter_cli_init();
     cli_command_transmit_task();
 #endif
+    printf("%s----%d\n", __FUNCTION__, __LINE__);
     // Initialize the esp_netif bindings
     openthread_netif = init_openthread_netif(s_platform_config);
     return ESP_OK;

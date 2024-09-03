@@ -113,6 +113,11 @@ extern "C" void app_main()
     ESP_LOGI(TAG, "chip-esp32-thread-br-example starting");
     ESP_LOGI(TAG, "==================================================");
 
+    // esp_openthread_set_backbone_netif(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"));
+    // printf("pre ESPOpenThreadInit()\n");
+    // ESPOpenThreadInit();
+    // printf("post ESPOpenThreadInit()\n");
+
 #if CHIP_DEVICE_CONFIG_ENABLE_WIFI
     if (DeviceLayer::Internal::ESP32Utils::InitWiFiStack() != CHIP_NO_ERROR)
     {
@@ -149,7 +154,9 @@ extern "C" void app_main()
     SetDeviceAttestationCredentialsProvider(Examples::GetExampleDACProvider());
 #endif // CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
     esp_openthread_set_backbone_netif(esp_netif_get_handle_from_ifkey("WIFI_STA_DEF"));
+    printf("pre ESPOpenThreadInit()\n");
     ESPOpenThreadInit();
+    printf("post ESPOpenThreadInit()\n");
 
     chip::DeviceLayer::PlatformMgr().ScheduleWork(InitServer, reinterpret_cast<intptr_t>(nullptr));
 }

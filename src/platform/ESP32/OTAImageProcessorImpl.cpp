@@ -36,6 +36,12 @@
 #include <esp_delta_ota.h>
 #endif // CONFIG_ENABLE_DELTA_OTA
 
+#if defined(CONFIG_AUTO_UPDATE_RCP) && defined(CONFIG_OPENTHREAD_BORDER_ROUTER)
+#include "esp_br_firmware.h"
+#include "esp_rcp_update.h"
+#include "esp_check.h"
+#endif
+
 #define TAG "OTAImageProcessor"
 
 #ifdef CONFIG_ENABLE_DELTA_OTA
@@ -280,6 +286,195 @@ esp_err_t OTAImageProcessorImpl::DeltaOTAWriteCallback(const uint8_t * buf, size
 }
 #endif // CONFIG_ENABLE_DELTA_OTA
 
+#if defined(CONFIG_AUTO_UPDATE_RCP) && defined(CONFIG_OPENTHREAD_BORDER_ROUTER)
+typedef enum RcpImageState {
+    BR_OTA_INIT = 0,
+    RCP_DOWNLOAD,
+    BR_FW_DOWNLOAD,
+} RcpImageState_t;
+
+#define OTA_MAX_WRITE_SIZE 16
+
+static int write_file_for_length(FILE *fp, const void *buf, size_t size)
+{
+    static const int k_max_retry = 5;
+    int retry_count = 0;
+    int offset = 0;
+    const uint8_t *data = (const uint8_t *)buf;
+    while (offset < size) {
+        int ret =
+            fwrite(data + offset, 1, ((size - offset) < OTA_MAX_WRITE_SIZE ? (size - offset) : OTA_MAX_WRITE_SIZE), fp);
+        if (ret < 0) {
+            return ret;
+        }
+        if (ret == 0) {
+            retry_count++;
+        } else {
+            offset += ret;
+            retry_count = 0;
+        }
+        if (retry_count > k_max_retry) {
+            return -1;
+        }
+    }
+    return size;
+}
+
+esp_err_t OTAImageProcessorImpl::ProcessRcpImage(esp_ota_handle_t handle, const uint8_t* buffer, uint32_t buf_len)
+{
+    static RcpImageState_t state = BR_OTA_INIT;
+    static char rcp_target_path[RCP_FILENAME_MAX_SIZE];
+    static const char *rcp_firmware_dir = esp_rcp_get_firmware_dir();
+    static int8_t rcp_update_seq = esp_rcp_get_next_update_seq();
+
+    // First decide the br firmware offset
+    static uint32_t header_size = 0;
+    static uint32_t total_rev_size = 0;
+    static uint32_t br_firmware_offset = 0;
+    static uint32_t br_firmware_size = 0;
+
+    static FILE *fp = NULL;
+
+    switch(state)
+    {
+        case BR_OTA_INIT:
+        {
+            sprintf(rcp_target_path, "%s_%d/" ESP_BR_RCP_IMAGE_FILENAME, rcp_firmware_dir, rcp_update_seq);
+            ESP_LOGI(TAG, "Downloading RCP target file %s", rcp_target_path);
+
+            fp = fopen(rcp_target_path, "w");
+            if (!fp)
+            {
+                ESP_LOGE(TAG, "Fail to open %s, will delete it", rcp_target_path);
+                remove(rcp_target_path);
+                return ESP_FAIL;
+            }
+
+            esp_br_subfile_info_t subfile_info[7];
+            if (sizeof(subfile_info) > buf_len)
+            {
+                ESP_LOGE(TAG, "Packet len is less than the RCP header len");
+                if (fp != NULL) {
+                    fclose(fp);
+                }
+                return ESP_FAIL;
+            }
+
+            memcpy((char*)subfile_info, buffer, sizeof(subfile_info));
+            for (int i = 0; i < 7; i++)
+            {
+                printf("subfile_info[%d].tag:0x%lx--offset:0x%lx---size:0x%lx\n", i, subfile_info[i].tag, subfile_info[i].offset, subfile_info[i].size);
+                if (subfile_info[i].tag == FILETAG_IMAGE_HEADER)
+                {
+                    header_size = subfile_info[i].size;
+                    printf("rcp image header-----header_size:%ld\n", header_size);
+                }
+                else if (subfile_info[i].tag == FILETAG_BR_FIRMWARE)
+                {
+                    br_firmware_offset = subfile_info[i].offset;
+                    br_firmware_size = subfile_info[i].size;
+                    printf("br image--offset:%ld--size:%ld\n", br_firmware_offset, br_firmware_size);
+                }
+            }
+
+            if ((header_size != sizeof(subfile_info)) || (br_firmware_offset == 0) || (br_firmware_size == 0))
+            {
+                ESP_LOGE(TAG, "RCP header error");
+                fclose(fp);
+                return ESP_FAIL;
+            }
+
+            if (write_file_for_length(fp, buffer, buf_len) != buf_len)
+            {
+                ESP_LOGE(TAG, "Failed to write data");
+                fclose(fp);
+                return ESP_FAIL;
+            }
+
+            state = RCP_DOWNLOAD;
+            total_rev_size = buf_len;
+            break;
+        }
+        case RCP_DOWNLOAD:
+        {
+            printf("test point 3\n");
+            if (total_rev_size + buf_len >= br_firmware_offset)
+            {
+                uint32_t len = br_firmware_offset - total_rev_size;
+                if (write_file_for_length(fp, buffer, len) == len)
+                {
+                    ESP_LOGI(TAG, "RCP receive done, total size %ld bytes", br_firmware_offset);
+                    state = BR_FW_DOWNLOAD;
+                    fclose(fp);
+                    if (esp_rcp_submit_new_image() != ESP_OK)
+                    {
+                        ESP_LOGI(TAG, "Failed to submit RCP image");
+                        state = BR_OTA_INIT;
+                        return ESP_FAIL;
+                    }
+                }
+                else
+                {
+                    ESP_LOGE(TAG, "Failed to write data");
+                    fclose(fp);
+                    state = BR_OTA_INIT;
+                    return ESP_FAIL;
+                }
+
+                if (esp_ota_write(handle, buffer + len, buf_len - len) != ESP_OK)
+                {
+                    ESP_LOGE(TAG, "OTA write failed");
+                    state = BR_OTA_INIT;
+                    return ESP_FAIL;
+                }
+
+                total_rev_size = buf_len - len;
+                printf("write br image bytes: %ld\n", total_rev_size);
+            }
+            else
+            {
+                if (write_file_for_length(fp, buffer, buf_len) != buf_len)
+                {
+                    ESP_LOGE(TAG, "Failed to write data");
+                    fclose(fp);
+                    state = BR_OTA_INIT;
+                    return ESP_FAIL;
+                }
+                total_rev_size += buf_len;
+                printf("write rcp image total bytes: %ld\n", total_rev_size);
+            }
+            break;
+        }
+        case BR_FW_DOWNLOAD:
+        {
+            printf("test point 4\n");
+            if (esp_ota_write(handle, buffer, buf_len) != ESP_OK)
+            {
+                ESP_LOGE(TAG, "OTA write failed");
+                state = BR_OTA_INIT;
+                return ESP_FAIL;
+            }
+            total_rev_size += buf_len;
+            printf("write br image bytes: %ld\n", total_rev_size);
+
+            if (total_rev_size >= br_firmware_size)
+            {
+                state = BR_OTA_INIT;
+                printf("Thread BR image receive done\n");
+                ESP_LOGI(TAG, "Thread BR image receive done");
+            }
+            break;
+        }
+        default:
+        {
+            return ESP_FAIL;
+        }
+    }
+
+    return ESP_OK;
+}
+#endif
+
 void OTAImageProcessorImpl::HandlePrepareDownload(intptr_t context)
 {
     auto * imageProcessor = reinterpret_cast<OTAImageProcessorImpl *>(context);
@@ -483,6 +678,8 @@ void OTAImageProcessorImpl::HandleProcessBlock(intptr_t context)
 
     // Apply the patch and writes that data to the passive partition.
     err = esp_delta_ota_feed_patch(imageProcessor->mDeltaOTAUpdateHandle, blockToWrite.data() + index, blockToWrite.size() - index);
+#elif defined(CONFIG_AUTO_UPDATE_RCP) && defined(CONFIG_OPENTHREAD_BORDER_ROUTER)
+    err = imageProcessor->ProcessRcpImage(imageProcessor->mOTAUpdateHandle, blockToWrite.data(), blockToWrite.size());
 #else
     err           = esp_ota_write(imageProcessor->mOTAUpdateHandle, blockToWrite.data(), blockToWrite.size());
 #endif // CONFIG_ENABLE_DELTA_OTA
