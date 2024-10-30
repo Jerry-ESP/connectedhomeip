@@ -57,6 +57,7 @@ idf_build_set_property(COMPILE_OPTIONS "-Wno-error=maybe-uninitialized" APPEND)
 
 #For the H2, -Werror=uninitialized will cause an error in "src/lib/support/LambdaBridge.h"
 idf_build_set_property(COMPILE_OPTIONS "-Wno-error=uninitialized" APPEND)
+idf_build_set_property(CXX_COMPILE_OPTIONS "-Wno-overloaded-virtual" APPEND)
 
 flashing_script()
 
