@@ -1,7 +1,6 @@
 /*
  *
- *    Copyright (c) 2022 Project CHIP Authors
- *    All rights reserved.
+ *    Copyright (c) 2021-2023 Project CHIP Authors
  *
  *    Licensed under the Apache License, Version 2.0 (the "License");
  *    you may not use this file except in compliance with the License.
@@ -16,28 +15,40 @@
  *    limitations under the License.
  */
 
-#include "DeviceCallbacks.h"
+#include "esp_log.h"
 #include <common/CHIPDeviceManager.h>
 #include <common/Esp32AppServer.h>
-
-#include "AppTask.h"
-#include "BindingHandler.h"
-#include "esp_idf_version.h"
-#include "esp_log.h"
+#include <common/Esp32ThreadInit.h>
+#if ESP_IDF_VERSION >= ESP_IDF_VERSION_VAL(5, 0, 0)
+#include "spi_flash_mmap.h"
+#else
+#include "esp_spi_flash.h"
+#endif
 #include "esp_system.h"
 #include "freertos/FreeRTOS.h"
 #include "freertos/task.h"
 #include "nvs_flash.h"
 #include "shell_extension/launch.h"
-
+#include "shell_extension/openthread_cli_register.h"
+#include <app/server/Dnssd.h>
 #include <app/server/OnboardingCodesUtil.h>
 #include <credentials/DeviceAttestationCredsProvider.h>
 #include <credentials/examples/DeviceAttestationCredsExample.h>
+#include <credentials/CertificationDeclaration.h>
 #include <platform/ESP32/ESP32Utils.h>
+
+#if CONFIG_ENABLE_ESP_INSIGHTS_SYSTEM_STATS
+#include <tracing/esp32_trace/insights_sys_stats.h>
+#define START_TIMEOUT_MS 60000
+#endif
 
 #if CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
 #include <platform/ESP32/ESP32FactoryDataProvider.h>
 #endif // CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
+
+#if CONFIG_ENABLE_PW_RPC
+#include "Rpc.h"
+#endif
 
 #if CONFIG_ENABLE_ESP32_DEVICE_INFO_PROVIDER
 #include <platform/ESP32/ESP32DeviceInfoProvider.h>
@@ -45,17 +56,23 @@
 #include <DeviceInfoProviderImpl.h>
 #endif // CONFIG_ENABLE_ESP32_DEVICE_INFO_PROVIDER
 
-#if ESP_IDF_VERSION < ESP_IDF_VERSION_VAL(5, 0, 0)
-#include "esp_spi_flash.h"
-#else
-#include "esp_chip_info.h"
-#include "esp_flash.h"
+#if CONFIG_SEC_CERT_DAC_PROVIDER
+#include <platform/ESP32/ESP32SecureCertDACProvider.h>
+#endif
+
+#if CONFIG_ENABLE_ESP_INSIGHTS_TRACE
+#include <esp_insights.h>
+#include <tracing/esp32_trace/esp32_tracing.h>
+#include <tracing/registry.h>
 #endif
 
 using namespace ::chip;
 using namespace ::chip::Credentials;
 using namespace ::chip::DeviceManager;
 using namespace ::chip::DeviceLayer;
+using namespace ::chip::Crypto;
+
+static const char TAG[] = "MFG-TEST-APP";
 
 namespace {
 #if CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
@@ -67,92 +84,280 @@ DeviceLayer::ESP32DeviceInfoProvider gExampleDeviceInfoProvider;
 #else
 DeviceLayer::DeviceInfoProviderImpl gExampleDeviceInfoProvider;
 #endif // CONFIG_ENABLE_ESP32_DEVICE_INFO_PROVIDER
+
+#if CONFIG_SEC_CERT_DAC_PROVIDER
+DeviceLayer::ESP32SecureCertDACProvider gSecureCertDACProvider;
+#endif // CONFIG_SEC_CERT_DAC_PROVIDER
+
+chip::Credentials::DeviceAttestationCredentialsProvider * get_dac_provider(void)
+{
+#if CONFIG_SEC_CERT_DAC_PROVIDER
+    return &gSecureCertDACProvider;
+#elif CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
+    return &sFactoryDataProvider;
+#else  // EXAMPLE_DAC_PROVIDER
+    return chip::Credentials::Examples::GetExampleDACProvider();
+#endif
+}
+
 } // namespace
 
-static const char TAG[] = "light-switch-app";
+uint8_t s_dac_cert_buffer[kMaxDERCertLength];  // 600 bytes
+uint8_t s_pai_cert_buffer[kMaxDERCertLength];  // 600 bytes
+uint8_t s_paa_cert_buffer[kMaxDERCertLength];  // 600 bytes
+uint8_t s_cd_buffer[Credentials::kMaxCMSSignedCDMessage];
 
-static AppDeviceCallbacks EchoCallbacks;
-static AppDeviceCallbacksDelegate sAppDeviceCallbacksDelegate;
+MutableByteSpan paa_span;
+MutableByteSpan pai_span;
+MutableByteSpan dac_span;
+MutableByteSpan cd_span;
 
-static void InitServer(intptr_t context)
+uint8_t s_garbage_buffer[128];
+
+CHIP_ERROR verify_factory_information()
 {
-    // Print QR Code URL
-    PrintOnboardingCodes(chip::RendezvousInformationFlags(CONFIG_RENDEZVOUS_MODE));
+    DeviceInstanceInfoProvider *factory_provider = GetDeviceInstanceInfoProvider();
+    VerifyOrReturnError(factory_provider, CHIP_ERROR_INTERNAL, ESP_LOGE(TAG, "ERROR: Failed to get the factory provider impl"));
 
-    Esp32AppServer::Init(); // Init ZCL Data Model and CHIP App Server AND Initialize device attestation config
+    char vendor_name[32];
+    char product_name[32];
+    char hardware_ver_str[32];
+
+    uint16_t vendor_id;
+    uint16_t product_id;
+    uint16_t hardware_ver;
+
+    factory_provider->GetVendorName(vendor_name, 32);
+    factory_provider->GetVendorId(vendor_id);
+    factory_provider->GetProductName(product_name, 32);
+    factory_provider->GetProductId(product_id);
+    factory_provider->GetHardwareVersionString(hardware_ver_str, 32);
+    factory_provider->GetHardwareVersion(hardware_ver);
+
+    ESP_LOGI(TAG, "---------- factory info verify ----------");
+    ESP_LOGI(TAG, "Vendor Name:              %s", vendor_name);
+    ESP_LOGI(TAG, "Vendor ID:                0x%04X", vendor_id);
+    ESP_LOGI(TAG, "Product Name:             %s", product_name);
+    ESP_LOGI(TAG, "Product ID:               0x%04X", product_id);
+    ESP_LOGI(TAG, "Hardware Version String:  %s", hardware_ver_str);
+    ESP_LOGI(TAG, "Hardware Version:         0x%04X", hardware_ver);
+
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR read_certs_in_spans()
+{
+    // DAC Provider implementation
+    DeviceAttestationCredentialsProvider * dac_provider = GetDeviceAttestationCredentialsProvider();
+    VerifyOrReturnError(dac_provider, CHIP_ERROR_INTERNAL, ESP_LOGE(TAG, "ERROR: Failed to get the DAC provider impl"));
+
+    // Read DAC
+    dac_span = MutableByteSpan(s_dac_cert_buffer);
+    CHIP_ERROR err = dac_provider->GetDeviceAttestationCert(dac_span);
+    VerifyOrReturnError(err == CHIP_NO_ERROR, err, ESP_LOGE(TAG, "ERROR: Failed to read the DAC, %" CHIP_ERROR_FORMAT, err.Format()));
+
+    // Read PAI
+    pai_span = MutableByteSpan(s_pai_cert_buffer);
+    err = dac_provider->GetProductAttestationIntermediateCert(pai_span);
+    VerifyOrReturnError(err == CHIP_NO_ERROR, err, ESP_LOGE(TAG, "ERROR: Failed to read the PAI Certificate %" CHIP_ERROR_FORMAT, err.Format()));
+
+    // Read CD
+    cd_span = MutableByteSpan(s_cd_buffer);
+    err = dac_provider->GetCertificationDeclaration(cd_span);
+    VerifyOrReturnError(err == CHIP_NO_ERROR, err, ESP_LOGE(TAG, "ERROR: Failed to read the CD Certificate %" CHIP_ERROR_FORMAT, err.Format()));
+
+    ESP_LOGI(TAG, "----------Read CD Success----------\n");
+
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR dump_cert_details(const char *type, ByteSpan cert_span)
+{
+    ESP_LOGI(TAG, "---------- %s ----------", type);
+
+    // Get VID, PID from the certificate
+    AttestationCertVidPid vidpid;
+    CHIP_ERROR err = ExtractVIDPIDFromX509Cert(cert_span, vidpid);
+    VerifyOrReturnError(err == CHIP_NO_ERROR, err, ESP_LOGE(TAG, "ERROR: Failed to extract VID and PID, error: %" CHIP_ERROR_FORMAT, err.Format()));
+
+    if (vidpid.mVendorId.HasValue()) {
+        ESP_LOGI(TAG, "Vendor ID: 0x%04X", vidpid.mVendorId.Value());
+    }
+
+    if (vidpid.mProductId.HasValue()) {
+        ESP_LOGI(TAG, "Product ID: 0x%04X", vidpid.mProductId.Value());
+    }
+
+    // Get Public key from the certificate
+    P256PublicKey pubkey;
+    err = ExtractPubkeyFromX509Cert(cert_span, pubkey);
+    VerifyOrReturnError(err == CHIP_NO_ERROR, err, ESP_LOGE(TAG, "ERROR: Failed to extract public key, error: %" CHIP_ERROR_FORMAT, err.Format()));
+
+    // Print public key
+    // ESP_LOGI(TAG, "Public Key encoded as hex string:");
+    // for (uint8_t i = 0; i < pubkey.Length(); i++) {
+    //     printf("%02x", pubkey.ConstBytes()[i]);
+    // }
+    // printf("\n\n");
+
+    // Get AKID from the certificate
+    uint8_t akid_buffer[64];
+    MutableByteSpan akid_span(akid_buffer);
+    err = ExtractAKIDFromX509Cert(cert_span, akid_span);
+    VerifyOrReturnError(err == CHIP_NO_ERROR, err, ESP_LOGE(TAG, "ERROR: Failed to extract AKID, error: %" CHIP_ERROR_FORMAT, err.Format()));
+
+    // Print AKID
+    // ESP_LOGI(TAG, "X509v3 Authority Key Identifier:");
+    // printf("%02x", akid_span.data()[0]);
+    // for (uint8_t i = 1; i < akid_span.size(); i++) {
+    //     printf(":%02X", akid_span.data()[i]);
+    // }
+    // printf("\n\n");
+
+    // Get SKID from the certificate
+    uint8_t skid_buffer[64];
+    MutableByteSpan skid_span(skid_buffer);
+    err = ExtractSKIDFromX509Cert(cert_span, skid_span);
+    VerifyOrReturnError(err == CHIP_NO_ERROR, err, ESP_LOGE(TAG, "ERROR: Failed to extract SKID, error: %" CHIP_ERROR_FORMAT, err.Format()));
+
+    // Print SKID
+    // ESP_LOGI(TAG, "X509v3 Subject Key Identifier:");
+    // printf("%02x", skid_span.data()[0]);
+    // for (uint8_t i = 1; i < skid_span.size(); i++) {
+    //     printf(":%02X", skid_span.data()[i]);
+    // }
+    // printf("\n\n");
+
+    ESP_LOGI(TAG, "------------------------------\n");
+
+    return CHIP_NO_ERROR;
+}
+
+CHIP_ERROR test_dac(ByteSpan dac)
+{
+    ESP_LOGI(TAG, "---------- Test DAC ----------");
+    // DAC Provider implementation
+    DeviceAttestationCredentialsProvider * dac_provider = GetDeviceAttestationCredentialsProvider();
+    VerifyOrReturnError(dac_provider, CHIP_ERROR_INTERNAL, ESP_LOGE(TAG, "ERROR: Failed to get the DAC provider impl"));
+
+    // Get Public key from the certificate
+    P256PublicKey pubkey;
+    CHIP_ERROR err = ExtractPubkeyFromX509Cert(dac, pubkey);
+    VerifyOrReturnError(err == CHIP_NO_ERROR, err, ESP_LOGE(TAG, "ERROR: Failed to get DAC public key, error: %" CHIP_ERROR_FORMAT, err.Format()));
+
+    // Garbage
+    esp_fill_random(s_garbage_buffer, sizeof(s_garbage_buffer));
+    ByteSpan mts_span(s_garbage_buffer);
+
+    // signature
+    P256ECDSASignature signature;
+    MutableByteSpan signature_span{ signature.Bytes(), signature.Capacity() };
+
+    // Generate attestation signature
+    err = dac_provider->SignWithDeviceAttestationKey(mts_span, signature_span);
+    VerifyOrReturnError(err == CHIP_NO_ERROR, err, ESP_LOGE(TAG, "ERROR: Failed to sign the message with DAC key, error: %" CHIP_ERROR_FORMAT, err.Format()));
+
+    ESP_LOGI(TAG, "Message signed with DAC key: OK");
+    // ESP_LOG_BUFFER_HEX(TAG, signature_span.data(), signature_span.size());
+
+    P256ECDSASignature signature_to_verify;
+
+    ReturnErrorOnFailure(signature_to_verify.SetLength(signature_span.size()));
+    memcpy(signature_to_verify.Bytes(), signature_span.data(), signature_span.size());
+
+    err = pubkey.ECDSA_validate_msg_signature(s_garbage_buffer, sizeof(s_garbage_buffer), signature_to_verify);
+    VerifyOrReturnError(err == CHIP_NO_ERROR, err, ESP_LOGE(TAG, "ERROR: Failed to validate signature, error: %" CHIP_ERROR_FORMAT, err.Format()));
+
+    ESP_LOGI(TAG, "Signature Verification: OK");
+    ESP_LOGI(TAG, "------------------------------\n");
+    return CHIP_NO_ERROR;
+}
+
+static esp_err_t nvs_init()
+{
+    esp_err_t esp_err = ESP_FAIL;
+
+#ifdef CONFIG_NVS_ENCRYPTION
+    nvs_sec_cfg_t cfg = {};
+
+    const esp_partition_t * key_part = esp_partition_find_first(ESP_PARTITION_TYPE_DATA, ESP_PARTITION_SUBTYPE_DATA_NVS_KEYS, NULL);
+    if (key_part == NULL)
+    {
+        ChipLogError(DeviceLayer,
+                     "CONFIG_NVS_ENCRYPTION is enabled, but no partition with subtype nvs_keys found in the partition table.");
+    }
+
+    esp_err = nvs_flash_read_security_cfg(key_part, &cfg);
+    if (esp_err == ESP_ERR_NVS_KEYS_NOT_INITIALIZED)
+    {
+        ChipLogError(DeviceLayer, "NVS key partition empty");
+    }
+    else if (esp_err != ESP_OK)
+    {
+        ChipLogError(DeviceLayer, "Failed to read NVS security cfg, err:0x%02x", esp_err);
+    }
+
+    // Securely initialize the nvs partitions,
+    // nvs_flash_secure_init_partition() will initialize the partition only if it is not already initialized.
+    esp_err = nvs_flash_secure_init_partition(CONFIG_CHIP_FACTORY_NAMESPACE_PARTITION_LABEL, &cfg);
+    // printf("nvs_flash_secure_init_partition: %s----err:%d\n", CONFIG_CHIP_FACTORY_NAMESPACE_PARTITION_LABEL, esp_err);
+    if (esp_err == ESP_ERR_NVS_NO_FREE_PAGES || esp_err == ESP_ERR_NVS_NEW_VERSION_FOUND)
+    {
+        ChipLogError(DeviceLayer, "Failed to initialize NVS partition %s err:0x%02x",
+                     CONFIG_CHIP_FACTORY_NAMESPACE_PARTITION_LABEL, esp_err);
+    }
+#else
+    // Initialize the nvs partitions,
+    // nvs_flash_init_partition() will initialize the partition only if it is not already initialized.
+    esp_err = nvs_flash_init_partition(CONFIG_CHIP_FACTORY_NAMESPACE_PARTITION_LABEL);
+
+#endif
+    return esp_err;
 }
 
 extern "C" void app_main()
 {
     // Initialize the ESP NVS layer.
-    esp_err_t err = nvs_flash_init();
-    if (err != ESP_OK)
+    esp_err_t error = nvs_flash_init();
+
+    //nvs_flash_init_partition("fctry");
+    nvs_init();
+
+    if (error != ESP_OK)
     {
-        ESP_LOGE(TAG, "nvs_flash_init() failed: %s", esp_err_to_name(err));
-        return;
-    }
-    err = esp_event_loop_create_default();
-    if (err != ESP_OK)
-    {
-        ESP_LOGE(TAG, "esp_event_loop_create_default() failed: %s", esp_err_to_name(err));
+        ESP_LOGE(TAG, "nvs_flash_init() failed: %s", esp_err_to_name(error));
         return;
     }
 
     ESP_LOGI(TAG, "==================================================");
-    ESP_LOGI(TAG, "chip-esp32-light-switch-example starting");
-    ESP_LOGI(TAG, "==================================================");
-
-#if CHIP_DEVICE_CONFIG_ENABLE_WIFI
-    if (DeviceLayer::Internal::ESP32Utils::InitWiFiStack() != CHIP_NO_ERROR)
-    {
-        ESP_LOGE(TAG, "Failed to initialize the Wi-Fi stack");
-        return;
-    }
-#endif
-
-#if CONFIG_ENABLE_CHIP_SHELL
-    chip::LaunchShell();
-#endif // CONFIG_ENABLE_CHIP_SHELL
-
-    DeviceLayer::SetDeviceInfoProvider(&gExampleDeviceInfoProvider);
-
-    CHIPDeviceManager & deviceMgr = CHIPDeviceManager::GetInstance();
-    CHIP_ERROR error              = deviceMgr.Init(&EchoCallbacks);
-    DeviceCallbacksDelegate::Instance().SetAppDelegate(&sAppDeviceCallbacksDelegate);
-    if (error != CHIP_NO_ERROR)
-    {
-        ESP_LOGE(TAG, "device.Init() failed: %" CHIP_ERROR_FORMAT, error.Format());
-        return;
-    }
+    ESP_LOGI(TAG, "DAC And Factory Information Verify");
+    ESP_LOGI(TAG, "==================================================\n\n");
 
 #if CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
     SetCommissionableDataProvider(&sFactoryDataProvider);
-    SetDeviceAttestationCredentialsProvider(&sFactoryDataProvider);
 #if CONFIG_ENABLE_ESP32_DEVICE_INSTANCE_INFO_PROVIDER
     SetDeviceInstanceInfoProvider(&sFactoryDataProvider);
 #endif
-#else
-    SetDeviceAttestationCredentialsProvider(Examples::GetExampleDACProvider());
-#endif // CONFIG_ENABLE_ESP32_FACTORY_DATA_PROVIDER
-
-#if CHIP_DEVICE_CONFIG_ENABLE_THREAD
-    if (DeviceLayer::ThreadStackMgr().InitThreadStack() != CHIP_NO_ERROR)
-    {
-        ESP_LOGE(TAG, "Failed to initialize Thread stack");
-        return;
-    }
-    if (DeviceLayer::ThreadStackMgr().StartThreadTask() != CHIP_NO_ERROR)
-    {
-        ESP_LOGE(TAG, "Failed to launch Thread task");
-        return;
-    }
 #endif
 
-    chip::DeviceLayer::PlatformMgr().ScheduleWork(InitServer, reinterpret_cast<intptr_t>(nullptr));
+    SetDeviceAttestationCredentialsProvider(get_dac_provider());
 
-    error = GetAppTask().StartAppTask();
-    if (error != CHIP_NO_ERROR)
-    {
-        ESP_LOGE(TAG, "GetAppTask().StartAppTask() failed : %" CHIP_ERROR_FORMAT, error.Format());
-    }
+    read_certs_in_spans();
+
+    // Dump PAI details
+    CHIP_ERROR err = dump_cert_details("PAI", pai_span);
+    VerifyOrReturn(err == CHIP_NO_ERROR, ESP_LOGE(TAG, "ERROR: Failed to dump PAI certificate details, error: %" CHIP_ERROR_FORMAT, err.Format()));
+
+    // Dump DAC details
+    err = dump_cert_details("DAC", dac_span);
+    VerifyOrReturn(err == CHIP_NO_ERROR, ESP_LOGE(TAG, "ERROR: Failed to dump DAC certificate details, error: %" CHIP_ERROR_FORMAT, err.Format()));
+
+    // Sign the message with DAC key and verify with public key in DAC certificate
+    err = test_dac(dac_span);
+    VerifyOrReturn(err == CHIP_NO_ERROR, ESP_LOGE(TAG, "ERROR: Failed to Sign and Verify using DAC keypair, error: %" CHIP_ERROR_FORMAT, err.Format()));
+
+    verify_factory_information();
+
+
+    ESP_LOGI(TAG, "\n\n");
 }

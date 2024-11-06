@@ -43,5 +43,6 @@ idf_build_set_property(COMPILE_OPTIONS "-Wno-format-nonliteral;-Wno-format-secur
 #
 # See https://gcc.gnu.org/bugzilla/show_bug.cgi?id=80635
 idf_build_set_property(COMPILE_OPTIONS "-Wno-error=maybe-uninitialized" APPEND)
+idf_build_set_property(CXX_COMPILE_OPTIONS "-Wno-overloaded-virtual" APPEND)
 
 flashing_script()
