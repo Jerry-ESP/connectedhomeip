@@ -22,7 +22,8 @@
 #include <lib/support/logging/CHIPLogging.h>
 
 static constexpr time_t kMinValidTimeStampEpoch = 1704067200; // 1 Jan 2019
-static constexpr uint32_t kMilliSecondsInADay   = 24 * 60 * 60 * 1000;
+// static constexpr uint32_t kMilliSecondsInADay   = 24 * 60 * 60 * 1000;
+static constexpr uint32_t kMilliSecondsInADay   = 30 * 1000;
 
 namespace {
 const uint8_t kMaxNtpServerStringSize = 128;

@@ -34,6 +34,7 @@ set(SRC_DIRS_LIST
                       "${CHIP_ROOT}/examples/providers"
                       "${CHIP_ROOT}/examples/platform/esp32/ota"
                       "${CHIP_ROOT}/examples/platform/esp32/common"
+                      "${CHIP_ROOT}/examples/platform/esp32/time"
                       "${CHIP_ROOT}/examples/platform/esp32/shell_extension"
 )
 
