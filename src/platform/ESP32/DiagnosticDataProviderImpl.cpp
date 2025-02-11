@@ -41,6 +41,7 @@
 #include "esp_mac.h"
 #include "esp_system.h"
 #include "esp_wifi.h"
+#include "esp_private/wifi.h"
 
 using namespace ::chip;
 using namespace ::chip::TLV;
@@ -423,44 +424,231 @@ CHIP_ERROR DiagnosticDataProviderImpl::GetWiFiRssi(int8_t & rssi)
     return ESP32Utils::MapError(err);
 }
 
+CHIP_ERROR DiagnosticDataProviderImpl::GetWiFiBeaconRxCount(uint32_t & beaconRxCount)
+{
+    esp_err_t err;
+    uint32_t rev_count;
+    uint32_t total_count;
+
+    err = esp_wifi_internal_sta_get_beacon_statis(&rev_count, &total_count);
+
+    if (err == ESP_OK)
+    {
+        beaconRxCount = rev_count;
+        return CHIP_NO_ERROR;
+    }
+
+    return ESP32Utils::MapError(err);
+}
+
 CHIP_ERROR DiagnosticDataProviderImpl::GetWiFiBeaconLostCount(uint32_t & beaconLostCount)
 {
-    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
+    esp_err_t err;
+    uint32_t rev_count;
+    uint32_t total_count;
+
+    err = esp_wifi_internal_sta_get_beacon_statis(&rev_count, &total_count);
+
+    if (err == ESP_OK)
+    {
+        beaconLostCount = total_count - rev_count;
+        return CHIP_NO_ERROR;
+    }
+
+    return ESP32Utils::MapError(err);
 }
 
 CHIP_ERROR DiagnosticDataProviderImpl::GetWiFiCurrentMaxRate(uint64_t & currentMaxRate)
 {
-    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
+    esp_err_t err;
+    wifi_phy_rate_t rate;
+
+    err = esp_wifi_internal_sta_get_cur_tx_rate(&rate);
+
+    if (err == ESP_OK)
+    {
+        switch (rate)
+        {
+            case WIFI_PHY_RATE_1M_L:
+                currentMaxRate = 1000000;
+                break;
+            case WIFI_PHY_RATE_2M_L:
+                currentMaxRate = 2000000;
+                break;
+            case WIFI_PHY_RATE_5M_L:
+                currentMaxRate = 5000000;
+                break;
+            case WIFI_PHY_RATE_11M_L:
+                currentMaxRate = 11000000;
+                break;
+            case WIFI_PHY_RATE_2M_S:
+                currentMaxRate = 2000000;
+                break;
+            case WIFI_PHY_RATE_5M_S:
+                currentMaxRate = 5000000;
+                break;
+            case WIFI_PHY_RATE_11M_S:
+                currentMaxRate = 11000000;
+                break;
+            case WIFI_PHY_RATE_48M:
+                currentMaxRate = 48000000;
+                break;
+            case WIFI_PHY_RATE_24M:
+                currentMaxRate = 24000000;
+                break;
+            case WIFI_PHY_RATE_12M:
+                currentMaxRate = 12000000;
+                break;
+            case WIFI_PHY_RATE_6M:
+                currentMaxRate = 6000000;
+                break;
+            case WIFI_PHY_RATE_54M:
+                currentMaxRate = 54000000;
+                break;
+            case WIFI_PHY_RATE_36M:
+                currentMaxRate = 36000000;
+                break;
+            case WIFI_PHY_RATE_18M:
+                currentMaxRate = 18000000;
+                break;
+            case WIFI_PHY_RATE_9M:
+                currentMaxRate = 9000000;
+                break;
+            case WIFI_PHY_RATE_LORA_250K:
+                currentMaxRate = 250000;
+                break;
+            case WIFI_PHY_RATE_LORA_500K:
+                currentMaxRate = 500000;
+                break;
+            default:
+                currentMaxRate = 0;
+            break;
+        }
+
+        return CHIP_NO_ERROR;
+    }
+
+    return ESP32Utils::MapError(err);
 }
 
 CHIP_ERROR DiagnosticDataProviderImpl::GetWiFiPacketMulticastRxCount(uint32_t & packetMulticastRxCount)
 {
-    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
+    esp_err_t err = ESP_OK;
+    uint32_t u_rev_count;
+    uint32_t m_rev_count;
+
+    packetMulticastRxCount = 0;
+
+    for (uint8_t i = 0; i < 4; i++)
+    {
+        err |= esp_wifi_internal_get_rx_data_statis(i, &u_rev_count, &m_rev_count);
+        if (err != ESP_OK)
+        {
+            break;
+        }
+        printf("%s---%d--u_rev_count:%ld\n", __FUNCTION__, __LINE__, m_rev_count);
+        packetMulticastRxCount += m_rev_count;
+    }
+
+    return ESP32Utils::MapError(err);
 }
 
 CHIP_ERROR DiagnosticDataProviderImpl::GetWiFiPacketMulticastTxCount(uint32_t & packetMulticastTxCount)
 {
-    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
+    esp_err_t err = ESP_OK;
+    uint32_t u_tx_total_count;
+    uint32_t u_tx_retry_count;
+    uint32_t u_tx_success_count;
+    uint32_t u_tx_fail_count;
+    uint32_t m_tx_count;
+
+    packetMulticastTxCount = 0;
+
+    for (uint8_t i = 0; i < 4; i++)
+    {
+        err |= esp_wifi_internal_get_tx_data_statis(i, &u_tx_total_count, &u_tx_retry_count, &u_tx_success_count, &u_tx_fail_count, &m_tx_count);
+        if (err != ESP_OK)
+        {
+            break;
+        }
+        printf("%s---%d--m_tx_count:%ld\n", __FUNCTION__, __LINE__, m_tx_count);
+        packetMulticastTxCount += m_tx_count;
+    }
+
+    return ESP32Utils::MapError(err);
 }
 
 CHIP_ERROR DiagnosticDataProviderImpl::GetWiFiPacketUnicastRxCount(uint32_t & packetUnicastRxCount)
 {
-    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
+    esp_err_t err = ESP_OK;
+    uint32_t u_rev_count;
+    uint32_t m_rev_count;
+
+    packetUnicastRxCount = 0;
+
+    for (uint8_t i = 0; i < 4; i++)
+    {
+        err |= esp_wifi_internal_get_rx_data_statis(i, &u_rev_count, &m_rev_count);
+        if (err != ESP_OK)
+        {
+            break;
+        }
+        printf("%s---%d--u_rev_count:%ld\n", __FUNCTION__, __LINE__, u_rev_count);
+        packetUnicastRxCount += u_rev_count;
+    }
+
+    return ESP32Utils::MapError(err);
 }
 
 CHIP_ERROR DiagnosticDataProviderImpl::GetWiFiPacketUnicastTxCount(uint32_t & packetUnicastTxCount)
 {
-    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
+    esp_err_t err = ESP_OK;
+    uint32_t u_tx_total_count;
+    uint32_t u_tx_retry_count;
+    uint32_t u_tx_success_count;
+    uint32_t u_tx_fail_count;
+    uint32_t m_tx_count;
+
+    packetUnicastTxCount = 0;
+
+    for (uint8_t i = 0; i < 4; i++)
+    {
+        err |= esp_wifi_internal_get_tx_data_statis(i, &u_tx_total_count, &u_tx_retry_count, &u_tx_success_count, &u_tx_fail_count, &m_tx_count);
+        if (err != ESP_OK)
+        {
+            break;
+        }
+        printf("%s---%d--u_tx_total_count:%ld--packetUnicastTxCount:%ld\n", __FUNCTION__, __LINE__, u_tx_total_count, packetUnicastTxCount);
+        packetUnicastTxCount += u_tx_total_count;
+    }
+
+    return ESP32Utils::MapError(err);
 }
 
 CHIP_ERROR DiagnosticDataProviderImpl::GetWiFiOverrunCount(uint64_t & overrunCount)
 {
-    return CHIP_ERROR_UNSUPPORTED_CHIP_FEATURE;
+    esp_err_t err = ESP_OK;
+
+    overrunCount = 0;
+
+    return ESP32Utils::MapError(err);
 }
 
 CHIP_ERROR DiagnosticDataProviderImpl::ResetWiFiNetworkDiagnosticsCounts()
 {
-    return CHIP_NO_ERROR;
+    esp_err_t err;
+
+    err = esp_wifi_internal_reset_tx_data_statis();
+    err |= esp_wifi_internal_reset_rx_data_statis();
+    err |= esp_wifi_internal_reset_tx_statis();
+    err |= esp_wifi_internal_reset_beacon_statis();
+
+    if (err == ESP_OK)
+    {
+        return CHIP_NO_ERROR;
+    }
+
+    return ESP32Utils::MapError(err);
 }
 #endif // CHIP_DEVICE_CONFIG_ENABLE_WIFI
 

@@ -337,8 +337,8 @@ endif()
 
 set(args_gn "${CMAKE_CURRENT_BINARY_DIR}/args.gn")
 add_custom_command(OUTPUT "${args_gn}"
-                   COMMAND ${python} 
-                           ${CMAKE_CURRENT_LIST_DIR}/create_args_gn.py 
+                   COMMAND ${python}
+                           ${CMAKE_CURRENT_LIST_DIR}/create_args_gn.py
                            "${CMAKE_BINARY_DIR}"
                            "${idf_path}"
                            "${CMAKE_CURRENT_LIST_DIR}/chip.c"
@@ -420,7 +420,7 @@ target_include_directories(${COMPONENT_LIB} INTERFACE
     "${CHIP_ROOT}/config/esp32/${CONFIG_CHIP_EXTERNAL_PLATFORM_DIR}/../../"
 )
 
-set(matter_requires lwip freertos console bt)
+set(matter_requires lwip freertos console bt espressif__esp_diagnostics)
 idf_build_get_property(build_components BUILD_COMPONENTS)
 if("espressif__mdns" IN_LIST build_components)
     list(APPEND matter_requires espressif__mdns)
