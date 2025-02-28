@@ -133,8 +133,45 @@ CHIP_ERROR UDPEndPointImplLwIP::ListenImpl()
     return CHIP_NO_ERROR;
 }
 
+static void swap_value(uint32_t input)
+{
+    uint32_t test[4] = {0};
+    // printf("input:%lx\n", input);
+
+    test[0] = (input & 0xFF000000);
+    test[1] = (input & 0x00FF0000);
+    test[2] = (input & 0x0000FF00);
+    test[3] = (input & 0x000000FF);
+
+    // for (int i = 0; i < 4; i++) {
+    //     printf("test[%d]: %lx\n", i, test[i]);
+    // }
+
+    printf("%lx:%lx:", ((test[3] << 8) | (test[2] >> 8)), ((test[1] >> 8) | (test[0] >> 24)));
+    // printf("\n");
+}
+
+static void swap_ip4_value(uint32_t input)
+{
+    uint8_t test[4] = {0};
+    // printf("input:%lx\n", input);
+
+    test[0] = static_cast<uint8_t>((input & 0xFF000000) >> 24);
+    test[1] = static_cast<uint8_t>((input & 0x00FF0000) >> 16);
+    test[2] = static_cast<uint8_t>((input & 0x0000FF00) >> 8);
+    test[3] = static_cast<uint8_t>((input & 0x000000FF));
+
+    // for (int i = 0; i < 4; i++) {
+    //     printf("test[%d]: %lx\n", i, test[i]);
+    // }
+
+    printf("%d.%d.%d.%d\n",test[3], test[2], test[1], test[0]);
+    // printf("\n");
+}
+
 CHIP_ERROR UDPEndPointImplLwIP::SendMsgImpl(const IPPacketInfo * pktInfo, System::PacketBufferHandle && msg)
 {
+    printf("---------%s-------%d\n", __FUNCTION__, __LINE__);
     assertChipStackLockedByCurrentThread();
 
     const IPAddress & destAddr = pktInfo->DestAddress;
@@ -172,7 +209,6 @@ CHIP_ERROR UDPEndPointImplLwIP::SendMsgImpl(const IPPacketInfo * pktInfo, System
 
     ip_addr_t lwipSrcAddr  = srcAddr.ToLwIPAddr();
     ip_addr_t lwipDestAddr = destAddr.ToLwIPAddr();
-
     ip_addr_t boundAddr;
     ip_addr_copy(boundAddr, mUDP->local_ip);
 
@@ -181,12 +217,37 @@ CHIP_ERROR UDPEndPointImplLwIP::SendMsgImpl(const IPPacketInfo * pktInfo, System
         ip_addr_copy(mUDP->local_ip, lwipSrcAddr);
     }
 
+    printf("lwipSrcAddr.type: %d\n", lwipSrcAddr.type);
+    printf("lwipDestAddr.type: %d\n", lwipDestAddr.type);
+
+    if (lwipSrcAddr.type == IPADDR_TYPE_V4) {
+        swap_ip4_value(lwipSrcAddr.u_addr.ip4.addr);
+    } else {
+        printf("ip6 src address:");
+        for (int i = 0; i < 4; i++) {
+            swap_value(lwipSrcAddr.u_addr.ip6.addr[i]);
+        }
+        printf("\n");
+    }
+
+    if (lwipDestAddr.type == IPADDR_TYPE_V4) {
+        swap_ip4_value(lwipDestAddr.u_addr.ip4.addr);
+    } else {
+        printf("ip6 dst address:");
+        for (int i = 0; i < 4; i++) {
+            swap_value(lwipDestAddr.u_addr.ip6.addr[i]);
+        }
+        printf("\n");
+    }
+
     lwipErr = RunOnTCPIPRet([this, &intfId, &msg, &lwipDestAddr, destPort]() {
         if (intfId.IsPresent())
         {
+            printf("---------%s-------%d\n", __FUNCTION__, __LINE__);
             return udp_sendto_if(mUDP, System::LwIPPacketBufferView::UnsafeGetLwIPpbuf(msg), &lwipDestAddr, destPort,
                                  intfId.GetPlatformInterface());
         }
+        printf("---------%s-------%d\n", __FUNCTION__, __LINE__);
         return udp_sendto(mUDP, System::LwIPPacketBufferView::UnsafeGetLwIPpbuf(msg), &lwipDestAddr, destPort);
     });
 
