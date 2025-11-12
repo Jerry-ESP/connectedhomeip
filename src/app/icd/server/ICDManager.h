@@ -229,7 +229,6 @@ public:
 #endif // CHIP_CONFIG_ENABLE_ICD_CIP
 
 #if CONFIG_BUILD_FOR_HOST_UNIT_TEST
-    void SetTestFeatureMapValue(uint32_t featureMap) { mFeatureMap = featureMap; };
 #if CHIP_CONFIG_PERSIST_SUBSCRIPTIONS && !CHIP_CONFIG_SUBSCRIPTION_TIMEOUT_RESUMPTION
     bool GetIsBootUpResumeSubscriptionExecuted() { return mIsBootUpResumeSubscriptionExecuted; };
 #endif // !CHIP_CONFIG_SUBSCRIPTION_TIMEOUT_RESUMPTION && CHIP_CONFIG_PERSIST_SUBSCRIPTIONS
@@ -249,6 +248,10 @@ public:
 
     void OnICDManagementServerEvent(ICDManagementEvents event) override;
     void OnSubscriptionReport() override;
+
+#if CHIP_CONFIG_ENABLE_ICD_SERVER && CHIP_CONFIG_ENABLE_ICD_CIP && CHIP_CONFIG_ENABLE_ICD_CHECK_IN_ON_REPORT_TIMEOUT
+    void OnSendCheckIn(const Access::SubjectDescriptor & subject) override;
+#endif // CHIP_CONFIG_ENABLE_ICD_SERVER && CHIP_CONFIG_ENABLE_ICD_CIP && CHIP_CONFIG_ENABLE_ICD_CHECK_IN_ON_REPORT_TIMEOUT
 
 private:
     // TODO : Once <gtest/gtest_prod.h> can be included, use FRIEND_TEST for the friend class.
@@ -335,7 +338,9 @@ private:
      *       ShouldCheckInMsgsBeSentAtActiveModeFunction. If we should, we allocate an ICDCheckInSender which tries to send a
      *       Check-In message to the registered client.
      */
-    void SendCheckInMsgs();
+    void SendCheckInMsgs(Optional<Access::SubjectDescriptor> specificSubject = Optional<Access::SubjectDescriptor>());
+    bool ShouldSendCheckInMessageForSpecificSubject(const ICDMonitoringEntry & entry,
+                                                    const Access::SubjectDescriptor & specificSubject);
 
     /**
      * @brief See function implementation in .cpp for details on this function.
@@ -381,11 +386,6 @@ private:
     ICDCheckInBackOffStrategy * mICDCheckInBackOffStrategy = nullptr;
     ObjectPool<ICDCheckInSender, (CHIP_CONFIG_ICD_CLIENTS_SUPPORTED_PER_FABRIC * CHIP_CONFIG_MAX_FABRICS)> mICDSenderPool;
 #endif // CHIP_CONFIG_ENABLE_ICD_CIP
-
-#if CONFIG_BUILD_FOR_HOST_UNIT_TEST
-    // feature map that can be changed at runtime for testing purposes
-    uint32_t mFeatureMap = 0;
-#endif // CONFIG_BUILD_FOR_HOST_UNIT_TEST
 };
 
 } // namespace app
